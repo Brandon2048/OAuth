@@ -17,7 +17,7 @@ app.debug = True #Change this to False for production
 app.secret_key = os.environ['SECRET_KEY'] 
 oauth = OAuth(app)
 
-set up github as oauth provider
+#set up github as oauth provider
 github = oauth.remote_app(
     'github',
     consumer_key=os.environ['GITHUB_CLIENT_ID'], 
