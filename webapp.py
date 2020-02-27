@@ -1,34 +1,35 @@
-from flask import Flask, redirect, url_for, session, request, jsonify
+from flask import Flask, redirect, url_for, session, request, jsonify, Markup
 from flask_oauthlib.client import OAuth
 from flask import render_template
 
 import pprint
 import os
-
-# This code originally from https://github.com/lepture/flask-oauthlib/blob/master/example/github.py
-# Edited by P. Conrad for SPIS 2016 to add getting Client Id and Secret from
-# environment variables, so that this will work on Heroku.
-# Edited by S. Adams for Designing Software for the Web to add comments and remove flash messaging
+import json
 
 app = Flask(__name__)
 
-app.debug = True #Change this to False for production
+app.debug = True
+jsonData="post.json"
+postkey = 0
 
-app.secret_key = os.environ['SECRET_KEY'] 
+app.secret_key = os.environ['SECRET_KEY']
 oauth = OAuth(app)
 
-#set up github as oauth provider
+
+
+
 github = oauth.remote_app(
     'github',
-    consumer_key=os.environ['GITHUB_CLIENT_ID'], 
+    consumer_key=os.environ['GITHUB_CLIENT_ID'],
     consumer_secret=os.environ['GITHUB_CLIENT_SECRET'],
-    request_token_params={'scope': 'user:email'}, #request read-only access to the user's email.  For a list of possible scopes, see developer.github.com/apps/building-oauth-apps/scopes-for-oauth-apps
+    request_token_params={'scope': 'user:email'},
     base_url='https://api.github.com/',
     request_token_url=None,
     access_token_method='POST',
-    access_token_url='https://github.com/login/oauth/access_token',  
-    authorize_url='https://github.com/login/oauth/authorize' #URL for github's OAuth login
+    access_token_url='https://github.com/login/oauth/access_token',
+    authorize_url='https://github.com/login/oauth/authorize'
 )
+
 
 
 @app.context_processor
@@ -37,52 +38,86 @@ def inject_logged_in():
 
 @app.route('/')
 def home():
-    return render_template('home.html')
+
+    with open(jsonData) as myjson:
+        myFile = json.load(myjson)
+    return render_template('home.html', past_posts=posts_to_html())
+
+
+
+
+def posts_to_html():
+    table = Markup("<table class='table table-bordered'> <tr> <th> Username </th> <th> Message </th> </tr>")
+    try:
+        with open(jsonData, 'r+') as j:
+            postData=json.load(j)
+
+        for i in postData:
+            table += Markup("<tr> <td>" + i["username"] + "</td> <td>" + i["message"] + "</td>")
+            if session['user_data']['login'] == i["username"]:
+                table += Markup("<td>" + '<button type="button" class="btn btn-secondary">Delete</button>' + "</td>" + "</tr>")
+
+            else:
+                table += Markup("</tr>")
+
+    except:
+        table += Markup("</table>")
+    return table
+
+@app.route('/posted', methods=['POST'])
+def post():
+    username=session['user_data']['login']
+    postText=request.form['message']
+
+    try:
+        with open(jsonData, 'r+') as j:
+            postData=json.load(j)
+
+            postData.append({ "username":username, "message":postText })
+
+            j.seek(0)
+            j.truncate()
+            json.dump(postData,j)
+            print(postData)
+    except Exception as e:
+        print("unable to load Json")
+        print(e)
+
+    return render_template('home.html', past_posts=posts_to_html())
 
 @app.route('/login')
-def login():   
-    return github.authorize(callback=url_for('authorized', _external=True, _scheme='https'))
+def login():
+
+    return github.authorize(callback='https://oauth241452351.herokuapp.com/login/authorized')
+
+
 
 @app.route('/logout')
 def logout():
     session.clear()
     return render_template('message.html', message='You were logged out')
 
-@app.route('/login/authorized')#the route should match the callback URL registered with the OAuth provider
+@app.route('/login/authorized')
 def authorized():
     resp = github.authorized_response()
     if resp is None:
-        session.clear()
-        message = 'Access denied: reason=' + request.args['error'] + ' error=' + request.args['error_description'] + ' full=' + pprint.pformat(request.args)      
+
+        message = 'Access denied: reason=' + request.args['error'] + ' error=' + request.args['error_description'] + ' full=' + pprint.pformat(request.args)
     else:
         try:
-            #save user data and set log in message
             session['github_token'] = (resp['access_token'], '')
-            session['user_data'] = github.get('user').data
-            message = 'You were succesfully logged in as ' + session['user_data']['login'] + '.'
+            session['user_data']=github.get('user').data
+            message='You were successfully logged in as ' + session['user_data']['login']
         except Exception as inst:
-            #clear the session and give error message
             session.clear()
             print(inst)
-            message = 'Unable to login. Please try again.'
+            message='Unable to login, please try again.  '
     return render_template('message.html', message=message)
 
 
-@app.route('/page1')
-def renderPage1():
-    if 'user_data' in session:
-        user_data_pprint = pprint.pformat(session['user_data'])#format the user data nicely
-    else:
-        user_data_pprint = '';
-    return render_template('page1.html',dump_user_data=user_data_pprint)
-
-@app.route('/page2')
-def renderPage2():
-    return render_template('page2.html')
-
 @github.tokengetter
 def get_github_oauth_token():
-    return session['github_token']
+    return session.get('github_token')
 
 
 if __name__ == '__main__':
